@@ -1,6 +1,7 @@
 import gym
 from gym import wrappers
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 def run_cartpole(weights):
@@ -48,15 +49,18 @@ def random_search(search_iterations):
 
 if __name__ == '__main__':
     # Execute when the module is not initialized from an import statement.
-    env = gym.make('CartPole-v0')  # ,  render_mode="human")
+    env = gym.make('CartPole-v0')#,  render_mode="human")
+    env = wrappers.RecordVideo(env, "/home/tivo/01_RLstuff/videos")
+
     env.reset()
-    env = wrappers.Monitor(env, "/home/tivo/01_RLstuff/videos")
     example_weights = np.random.rand(4, 1) * 2 - 1
     goodweight = [[0.56477445], [0.52499204], [0.94437464], [0.48111971]]
     print(run_cartpole(goodweight))
     count_list = run_multiple(example_weights, 10)
     print(count_list)
     best_weights, best_count, count_mean = random_search(1000)
+    plt.plot(count_mean)
+    plt.show
 
     print(run_cartpole(best_weights))
     # env.close()
