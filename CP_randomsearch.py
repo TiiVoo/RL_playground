@@ -9,7 +9,7 @@ def run_cartpole(weights):
     count = 0
     done = False
     action = 1
-    max_iter = 10000
+    max_iter = 30000
     while not done and count < max_iter:
         [observation, reward, done, _, _] = env.step(action)
 
@@ -49,18 +49,19 @@ def random_search(search_iterations):
 
 if __name__ == '__main__':
     # Execute when the module is not initialized from an import statement.
-    env = gym.make('CartPole-v0')#,  render_mode="human")
-    env = wrappers.RecordVideo(env, "/home/tivo/01_RLstuff/videos")
+    env = gym.make('CartPole-v0',render_mode="rgb_array")#,  render_mode="human")
+    #env = wrappers.RecordVideo(env, '/home/tivo/01_RLstuff/videos')
 
     env.reset()
     example_weights = np.random.rand(4, 1) * 2 - 1
     goodweight = [[0.56477445], [0.52499204], [0.94437464], [0.48111971]]
     print(run_cartpole(goodweight))
-    count_list = run_multiple(example_weights, 10)
-    print(count_list)
-    best_weights, best_count, count_mean = random_search(1000)
-    plt.plot(count_mean)
-    plt.show
+    #count_list = run_multiple(example_weights, 10)
+    #print(count_list)
+    best_weights, best_count, count_mean = random_search(100)
+    #plt.plot(count_mean)
+    #plt.show()
 
+    env = wrappers.RecordVideo(env, '/home/tivo/01_RLstuff/videos')
     print(run_cartpole(best_weights))
-    # env.close()
+    #env.close()
