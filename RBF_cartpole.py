@@ -9,26 +9,19 @@ from sklearn.pipeline import FeatureUnion
 
 
 class SGDRegressor:
-    def __init__(self, dim, learning_rate=0.1):
-        self.w = np.random.random(dim)
-        self.b = 0
-        self.learning_rate = learning_rate
+    def __init__(self,D , learning_rate=0.1):
+        self.w = np.random.randn(D) / np.sqrt(D)
+        self.lr = learning_rate
 
     def partial_fit(self, x, y):
-        w_temp = -2 * (y - (np.dot(x, self.w) - self.b)).dot(x)
-        b_temp = -2 * (y - (np.dot(x, self.w) - self.b))
-
-        self.w -= self.learning_rate * w_temp
-        self.b -= self.learning_rate * b_temp
+        self.w += self.lr * (y - x.dot(self.w)).dot(x)
 
     def predict(self, x):
-        y = np.dot(x, self.w) + self.b
-        assert (len(y.shape) == 1)
-        return y
+        return x.dot(self.w)
 
 
 class FeatureExtract:
-    def __init__(self, env, n_components=1000):
+    def __init__(self, env, n_components=100):
         observation_examples = np.random.random((20000, 4))*2-2
         scaler = StandardScaler()
         scaler.fit(observation_examples)
@@ -36,10 +29,10 @@ class FeatureExtract:
         # Used to convert a state to a featurized representation.
         # We use RBF kernels with different variances to cover different parts of the space
         featurizer = FeatureUnion([
-            ("rbf1", RBFSampler(gamma=0.05, n_components=n_components)),
-            ("rbf2", RBFSampler(gamma=1.0, n_components=n_components)),
-            ("rbf3", RBFSampler(gamma=0.5, n_components=n_components)),
-            ("rbf4", RBFSampler(gamma=0.1, n_components=n_components))
+            ("rbf1", RBFSampler(gamma=1.0, n_components=n_components)),
+            ("rbf2", RBFSampler(gamma=0.5, n_components=n_components)),
+            ("rbf3", RBFSampler(gamma=0.1, n_components=n_components)),
+            ("rbf4", RBFSampler(gamma=0.01, n_components=n_components))
         ])
         example_features = featurizer.fit_transform(scaler.transform(observation_examples))
 
@@ -89,7 +82,7 @@ class Model:
 
 def run_episode(env, model, eps, gamma):
     observation = env.reset()[0]
-    max_iter = 10000
+    max_iter = 2000
     count = 0
     totalreward = 0
     done = False
@@ -99,10 +92,10 @@ def run_episode(env, model, eps, gamma):
         [observation, reward, done, _, _] = env.step(action)  # get new state
         prediction = model.predict(observation)
 
-        #if done:
-        #    reward = -100
+        if done:
+            reward = -200
 
-        g = reward + gamma * np.max(prediction[0])
+        g = reward + gamma * np.max(prediction)
         model.update(prev_observation, action, g)  # update q-matrix
         count += 1
         totalreward += reward
@@ -113,11 +106,11 @@ def run_episode(env, model, eps, gamma):
 
 
 def main():
-    env = gym.make('CartPole-v1')
+    env = gym.make('CartPole-v1')#, render_mode="human")
     feature_extract = FeatureExtract(env)
-    model = Model(env, feature_extract, learning_rate=0.01)
+    model = Model(env, feature_extract, learning_rate=0.1)
 
-    n_episodes = 10
+    n_episodes = 500
     total_rewards = np.empty(n_episodes)
     for i in range(n_episodes):
         eps = 1.0/np.sqrt(i+1)
@@ -134,9 +127,12 @@ def main():
     plt.show()
     # plot the optimal state-value function
 
-    # env = gym.make('MountainCar-v0',render_mode="human")
-    # model = Model(env, feature_extract, learning_rate="constant")
-
+    env = gym.make('CartPole-v1',render_mode="human")
+    #model = Model(env, feature_extract, learning_rate="constant")
+    for i in range(20):
+        eps = 0.001
+        total_count = run_episode(env, model, eps, gamma=0.99)
+        print("episode:", i, "total reward:", total_count)
 
 if __name__ == "__main__":
     main()
