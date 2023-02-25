@@ -123,6 +123,7 @@ def run_episode(env, model, eps, gamma):
 
 def main():
     env = gym.make('MountainCar-v0')
+    #env = gym.make('MountainCar-v0', render_mode="human")
     feature_extract = FeatureExtract(env)
     model = Model(env, feature_extract, learning_rate="constant")
 
