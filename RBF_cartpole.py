@@ -106,7 +106,7 @@ def run_episode(env, model, eps, gamma):
 
 
 def main():
-    env = gym.make('CartPole-v1')#, render_mode="human")
+    env = gym.make('CartPole-v1', render_mode="human")
     feature_extract = FeatureExtract(env)
     model = Model(env, feature_extract, learning_rate=0.1)
 
