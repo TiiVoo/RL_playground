@@ -23,7 +23,6 @@ class DQG_model:
 
         # Initialize discount and exploration rate
         self.gamma = 0.99
-        self.epsilon = 0.1
 
         # Build networks
         self.q_network = self._build_compile_model()
@@ -56,22 +55,22 @@ class DQG_model:
 
     def retrain(self, batch_size):
         minibatch = random.sample(self.experience_replay, batch_size)
+        states, actions, rewards, next_states, dones = zip(*minibatch)
 
-        for state, action, reward, next_state, done in minibatch:
-            with tf.GradientTape() as tape:
-                target = self.q_network(state)
+        with tf.GradientTape() as tape:
+            q_values = self.q_network(tf.concat(states, axis=0))
 
-                if done:
-                    target = tf.tensor_scatter_nd_update(target, [[0, action]], [reward])
-                else:
-                    t = self.target_network(next_state)
-                    target = tf.tensor_scatter_nd_update(target, [[0, action]],
-                                                         [reward + self.gamma * tf.reduce_max(t)])
+            target = tf.identity(q_values)
+            updates = rewards + (1 - tf.cast(dones, tf.float32)) * self.gamma * tf.reduce_max(
+                self.target_network(tf.concat(next_states, axis=0)), axis=-1)
+            indices = tf.stack([tf.range(batch_size), actions], axis=-1)
+            target = tf.tensor_scatter_nd_update(target, indices, updates)
 
-                loss = tf.keras.losses.MeanSquaredError()(target, self.q_network(state))
+            loss = tf.keras.losses.mean_squared_error(target, q_values)
 
-            grads = tape.gradient(loss, self.q_network.trainable_variables)
-            self._optimizer.apply_gradients(zip(grads, self.q_network.trainable_variables))
+        grads = tape.gradient(loss, self.q_network.trainable_variables)
+        self._optimizer.apply_gradients(zip(grads, self.q_network.trainable_variables))
+
 
 def run_episode(env,model,eps):
     state = env.reset()[0]
@@ -79,7 +78,7 @@ def run_episode(env,model,eps):
     max_iter = 2000
     count = 0
     totalreward = 0
-    batch_size = 5
+    batch_size = 100
 
     done = False
     while not done and count < max_iter:
@@ -118,7 +117,7 @@ def main():
     n_episodes = 50
     total_rewards = np.empty(n_episodes)
     for i in range(n_episodes):
-        eps = 0.1 * (0.97 ** i)
+        eps = 0.3 * (0.9 ** i)
         total_count = run_episode(env,model,eps)
         total_rewards[i] = total_count
         print("episode:", i, "total reward:", total_count)
