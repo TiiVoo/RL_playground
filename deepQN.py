@@ -19,7 +19,7 @@ class DQG_model:
 
         self.experience_replay = deque(maxlen=2000)
 
-        self._optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
+        self._optimizer = tf.keras.optimizers.Adam(learning_rate=0.005)
 
         # Initialize discount and exploration rate
         self.gamma = 0.99
@@ -35,8 +35,8 @@ class DQG_model:
 
     def _build_compile_model(self):
         model = tf.keras.Sequential()
-        model.add(tf.keras.layers.Dense(50, input_dim=self._state_size, activation='relu'))
-        model.add(tf.keras.layers.Dense(50, input_dim=self._state_size, activation='relu'))
+        model.add(tf.keras.layers.Dense(25, input_dim=self._state_size, activation='relu'))
+        model.add(tf.keras.layers.Dense(25, input_dim=self._state_size, activation='relu'))
         model.add(tf.keras.layers.Dense(self._action_size, activation='linear'))
 
         model.compile(loss='mse', optimizer=self._optimizer)
@@ -46,50 +46,45 @@ class DQG_model:
     def alighn_target_model(self):
         self.target_network.set_weights(self.q_network.get_weights())
 
-
     @tf.function
-    def act(self, state):
-        if tf.random.uniform([]) <= self.epsilon:
+    def act(self, state,eps):
+        if tf.random.uniform([]) <= eps:
             return tf.random.uniform([], minval=0, maxval=self._action_size, dtype=tf.int64)
 
         q_values = self.q_network(state)
         return tf.argmax(q_values[0])
 
-    @tf.function
-    def train_step(self, state, target):
-        with tf.GradientTape() as tape:
-            predictions = self.q_network(state)
-            loss = tf.keras.losses.mean_squared_error(target, predictions)
-        gradients = tape.gradient(loss, self.q_network.trainable_variables)
-        self._optimizer.apply_gradients(zip(gradients, self.q_network.trainable_variables))
-    @tf.function
     def retrain(self, batch_size):
         minibatch = random.sample(self.experience_replay, batch_size)
 
         for state, action, reward, next_state, done in minibatch:
-            target = self.q_network(state)
+            with tf.GradientTape() as tape:
+                target = self.q_network(state)
 
-            if done:
-                target = tf.tensor_scatter_nd_update(target, [[0, action]], [reward])
-            else:
-                t = self.target_network(next_state)
-                target = tf.tensor_scatter_nd_update(target, [[0, action]], [reward + self.gamma * tf.reduce_max(t)])
+                if done:
+                    target = tf.tensor_scatter_nd_update(target, [[0, action]], [reward])
+                else:
+                    t = self.target_network(next_state)
+                    target = tf.tensor_scatter_nd_update(target, [[0, action]],
+                                                         [reward + self.gamma * tf.reduce_max(t)])
 
-            self.train_step(state, target)
+                loss = tf.keras.losses.MeanSquaredError()(target, self.q_network(state))
 
+            grads = tape.gradient(loss, self.q_network.trainable_variables)
+            self._optimizer.apply_gradients(zip(grads, self.q_network.trainable_variables))
 
-def run_episode(env,model):
+def run_episode(env,model,eps):
     state = env.reset()[0]
     state = state.reshape((1, -1))
     max_iter = 2000
     count = 0
     totalreward = 0
-    batch_size = 400
+    batch_size = 5
 
     done = False
     while not done and count < max_iter:
 
-        action = model.act(state)  # get action
+        action = model.act(state,eps)  # get action
         action = action.numpy()
         [next_state, reward, done, _, _] = env.step(action)  # get new state
         next_state = next_state.reshape((1, -1))
@@ -120,11 +115,11 @@ def main():
 
 
 
-    n_episodes = 100
+    n_episodes = 50
     total_rewards = np.empty(n_episodes)
     for i in range(n_episodes):
-
-        total_count = run_episode(env,model)
+        eps = 0.1 * (0.97 ** i)
+        total_count = run_episode(env,model,eps)
         total_rewards[i] = total_count
         print("episode:", i, "total reward:", total_count)
     print("avg reward for last 100 episodes:", total_rewards[-100:].mean())
@@ -139,7 +134,7 @@ def main():
     env = gym.make('CartPole-v1', render_mode="human")
 
     for i in range(10):
-        total_count = run_episode(env,model)
+        total_count = run_episode(env,model,eps=0.001)
         print("episode:", i, "total reward:", total_count)
 
 if __name__ == "__main__":
