@@ -17,7 +17,7 @@ class DQG_model:
         self._state_size = env.observation_space.shape[0]
         self._action_size = env.action_space.n
 
-        self.experience_replay = deque(maxlen=2000)
+        self.experience_replay = deque(maxlen=20000)
 
         self._optimizer = tf.keras.optimizers.Adam(learning_rate=0.005)
 
@@ -78,7 +78,7 @@ def run_episode(env,model,eps):
     max_iter = 2000
     count = 0
     totalreward = 0
-    batch_size = 100
+    batch_size = 500
 
     done = False
     while not done and count < max_iter:
@@ -114,10 +114,10 @@ def main():
 
 
 
-    n_episodes = 50
+    n_episodes = 100
     total_rewards = np.empty(n_episodes)
     for i in range(n_episodes):
-        eps = 0.3 * (0.9 ** i)
+        eps = 0.1 * (0.97 ** i)
         total_count = run_episode(env,model,eps)
         total_rewards[i] = total_count
         print("episode:", i, "total reward:", total_count)
