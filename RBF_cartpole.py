@@ -113,7 +113,7 @@ def main():
     n_episodes = 500
     total_rewards = np.empty(n_episodes)
     for i in range(n_episodes):
-        eps = 1.0/np.sqrt(i+1)
+        eps = max(1.0/np.sqrt(i+1),0.1)
         total_count = run_episode(env, model, eps, gamma=0.99)
         total_rewards[i] = total_count
         print("episode:", i, "total reward:", total_count)

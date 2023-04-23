@@ -53,6 +53,7 @@ class DQG_model:
         q_values = self.q_network(state)
         return tf.argmax(q_values[0])
 
+
     def retrain(self, batch_size):
         minibatch = random.sample(self.experience_replay, batch_size)
         states, actions, rewards, next_states, dones = zip(*minibatch)
@@ -100,7 +101,7 @@ def run_episode(env,model,eps):
         count += 1
         state = next_state
 
-    model.alighn_target_model()
+    model.align_target_model()
 
     return totalreward
 def main():
