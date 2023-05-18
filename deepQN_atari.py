@@ -6,28 +6,26 @@ import gym
 import matplotlib.pyplot as plt
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Conv2D, Flatten, Dense
+from tensorflow.keras.layers import Dense, Conv2D, Flatten
 from tensorflow.keras.optimizers import Adam
+from collections import deque
+import random
+from PIL import Image
 import pickle
 from skimage.color import rgb2gray
 from skimage.transform import resize
 
-from collections import deque
-import random
-from PIL import Image
 IM_SIZE = 84
 AGENT_HISTORY = 4
+
+
 def preprocess_frame(frame):
     frame = frame[31:194, 8:152]
-    '''frame = Image.fromarray(frame)            # Convert frame to PIL image
-    frame = frame.convert("L")                # Convert to grayscale
-    frame = frame.resize((IM_SIZE, IM_SIZE), Image.ANTIALIAS)  # Resize to 84x84
-    frame = np.array(frame, dtype=np.float32) / 255.0  # Convert back to NumPy array and normalize pixel values
-    '''
-    frame = np.uint8(
-        resize(rgb2gray(frame), (84, 84), mode='constant') * 255)
+    frame = tf.image.rgb_to_grayscale(frame)
+    frame = tf.image.resize(frame, (IM_SIZE, IM_SIZE), method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+    frame = tf.squeeze(frame)
+    frame = tf.cast(frame, tf.uint8)
     return frame
-    #plt.imshow(frame, cmap='gray')
 
 
 class ReplayMemory:
@@ -117,11 +115,12 @@ class ReplayMemory:
 
 
 class DQGModel:
-    def __init__(self, state_shape, n_actions, memory_size=250000, min_memory=0, batch_size=32, gamma=0.99, epsilon=0.1,
-                 epsilon_min=0.1, epsilon_decay=0.995, learning_rate=0.005,update_target_freq=1000):
+    def __init__(self, state_shape, n_actions, memory_size=1000000, min_memory=1000000, min_exploration=10000,
+                 batch_size=5000, gamma=0.99, epsilon=1,
+                 epsilon_min=0.01, epsilon_decay=(0.9), learning_rate=0.00025, update_target_freq=100):
         self.state_shape = state_shape
         self.n_actions = n_actions
-        self.memory = ReplayMemory(memory_size,batch_size)
+        self.memory = ReplayMemory(memory_size, batch_size)
         self.batch_size = batch_size
         self.gamma = gamma
         self.epsilon = epsilon
@@ -129,20 +128,23 @@ class DQGModel:
         self.epsilon_decay = epsilon_decay
         self.learning_rate = learning_rate
         self.min_memory = min_memory
+        self._optimizer = tf.keras.optimizers.Adam(learning_rate)
         self.model = self._build_model()
         self.target_model = self._build_model()
         self.update_target_freq = update_target_freq
         self.steps_taken = 0
+        self.min_exploration = min_exploration
 
     def _build_model(self):
         model = Sequential()
-        model.add(Conv2D(32, (8, 8), strides = 4, activation='relu', input_shape=self.state_shape))
-        model.add(Conv2D(64, (4, 4), strides= 2, activation='relu'))
-        model.add(Conv2D(64, (3, 3), strides= 1, activation='relu'))
+        model.add(Conv2D(32, (8, 8), strides=4, activation='relu', input_shape=self.state_shape))
+        model.add(Conv2D(64, (4, 4), strides=2, activation='relu'))
+        model.add(Conv2D(64, (3, 3), strides=1, activation='relu'))
         model.add(Flatten())
         model.add(Dense(512, activation='relu'))
         model.add(Dense(self.n_actions, activation='linear'))
-        model.compile(loss='mse', optimizer=Adam(lr=self.learning_rate))
+        # model.compile(loss='mse', optimizer=Adam(lr=self.learning_rate))
+        model.compile(loss=tf.keras.losses.Huber(delta=1.0), optimizer=self._optimizer)
         return model
 
     def remember(self, action, next_frame, reward, done):
@@ -159,38 +161,57 @@ class DQGModel:
             return
 
         states, actions, rewards, next_states, dones = self.memory.get_minibatch()
-        target = rewards + np.invert(dones).astype(np.float32)*self.gamma * tf.reduce_max(self.model(next_states), axis=1)
-        current_target_f = self.model(states)
-        current_target_f = current_target_f.numpy()
-        current_target_f[0][actions] = target
-        self.model.fit(np.array(states), np.array(current_target_f), epochs=1, verbose=0)
 
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
+        with tf.GradientTape() as tape:
+            q_values = self.model(states)
+            target = tf.identity(q_values)
+            updates = rewards + (1 - tf.cast(dones, tf.float32)) * self.gamma * tf.reduce_max(
+                self.target_model(next_states), axis=1)
+            indices = tf.stack([tf.range(self.batch_size), actions], axis=-1)
+            target = tf.tensor_scatter_nd_update(target, indices, updates)
+            # loss = tf.keras.losses.mean_squared_error(target, q_values)
+            loss = tf.keras.losses.Huber(delta=1.0)(target, q_values)
+
+        grads = tape.gradient(loss, self.model.trainable_variables)
+        self._optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
 
         self.steps_taken += 1
+
+        if self.epsilon > self.epsilon_min and self.steps_taken > self.min_exploration:
+            self.epsilon -= self.epsilon_decay / self.min_exploration
+
         if self.steps_taken % self.update_target_freq == 0:
             self.update_target_network()
+
     def update_target_network(self):
         self.target_model.set_weights(self.model.get_weights())
+
     def save_model(self, filepath):
-        self.model.save((filepath+ ".h5"))
-        with open((filepath+'.pkl'), 'wb') as file:
+        self.model.save((filepath + ".h5"))
+        self.target_model.save((filepath + "tg.h5"))
+
+        with open((filepath + 'mem.pkl'), 'wb') as file:
             pickle.dump(self.memory, file)
+        with open((filepath + 'param.pkl'), 'wb') as file:
+            pickle.dump((self.steps_taken, self.epsilon), file)
 
     def load_model(self, filepath):
-        self.model = tf.keras.models.load_model((filepath+".h5"))
-        self.update_target_network()
+        self.model = tf.keras.models.load_model((filepath + ".h5"))
+        self.target_model = tf.keras.models.load_model((filepath + "tg.h5"))
+        with open((filepath + "param.pkl"), 'rb') as file:
+            self.steps_taken, self.epsilon = pickle.load(file)
+
     def load_memory(self, filepath):
-        with open((filepath+".pkl"), 'rb') as file:
+        with open((filepath + "mem.pkl"), 'rb') as file:
             self.memory = pickle.load(file)
+
 
 def run_episode(env,model):
     frame = env.reset()[0]
     frame = preprocess_frame(frame)
     state = np.stack([frame] * 4, axis=2)
     state = np.expand_dims(state, axis=0)
-    max_iter = 2000
+    max_iter = 200000
     count = 0
     total_reward = 0
 
@@ -199,23 +220,24 @@ def run_episode(env,model):
     while not done and count < max_iter:
 
         action = model.act(state)  # get action
-        [next_frame, reward, done, _, _] = env.step(action)  # get new state
+        [next_frame, reward, done, _,_] = env.step(action)  # get new state
+        #plt.imshow(next_frame)
+        #plt.show()
+
 
         next_frame = preprocess_frame(next_frame)
-        assert next_frame.shape == (IM_SIZE, IM_SIZE)
         model.remember(action, next_frame, reward, done)
-
         next_frame = np.expand_dims(next_frame, axis=2)
         next_frame = np.expand_dims(next_frame, axis=0)
         next_state = np.append(state[:, :, :, 1:], next_frame, axis=3)
 
-
         total_reward += reward
         count += 1
         state = next_state
-        model.replay()
+    model.replay()
 
     return total_reward
+
 if __name__ == "__main__":
     MODEL_PATH = "./model/dQN_atari_model"
     env = gym.make('BreakoutDeterministic-v4', render_mode="human")
@@ -224,20 +246,20 @@ if __name__ == "__main__":
 
     model = DQGModel(state_shape, n_actions)
 
-    #model.load_model(MODEL_PATH)
+    model.load_model(MODEL_PATH)
     #model.load_memory(MODEL_PATH)
+    #model.epsilon=0.1
 
-
-    n_episodes = 80
+    n_episodes = 5002
     total_rewards = np.empty(n_episodes)
     for i in range(n_episodes):
 
         total_count = run_episode(env,model)
         total_rewards[i] = total_count
-        print("episode:", i, "total reward:", total_count)
-        if i%500==0:
+        print("episode:", i, "steps:", model.steps_taken, "epsilon:", model.epsilon, "total reward:", total_count)
+        if i%100==1 and i>100:
             model.save_model(MODEL_PATH)
-        if i % 100 == 0:
+        if i % 100 == 1:
             print("avg reward for last 100 episodes:", total_rewards[-100:].mean())
 
     plt.plot(total_rewards)
