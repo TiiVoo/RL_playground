@@ -101,7 +101,7 @@ def run_episode(env,model,eps):
         count += 1
         state = next_state
 
-    model.align_target_model()
+    model.alighn_target_model()
 
     return totalreward
 def main():

@@ -165,8 +165,7 @@ class DQGModel:
         with tf.GradientTape() as tape:
             q_values = self.model(states)
             target = tf.identity(q_values)
-            updates = rewards + (1 - tf.cast(dones, tf.float32)) * self.gamma * tf.reduce_max(
-                self.target_model(next_states), axis=1)
+            updates = rewards + (1 - tf.cast(dones, tf.float32)) * self.gamma
             indices = tf.stack([tf.range(self.batch_size), actions], axis=-1)
             target = tf.tensor_scatter_nd_update(target, indices, updates)
             # loss = tf.keras.losses.mean_squared_error(target, q_values)
